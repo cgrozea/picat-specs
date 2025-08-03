@@ -1,0 +1,276 @@
+# CG based on picat doc (tex) files
+%ignore WHITE_SPACE
+%ignore COMMENT
+LINE_TERMINATOR:/[\n\r]/
+INPUT_CHAR: /[^\n\r]/
+TEXTLINE: INPUT_CHAR*
+COMMENT: TRADITIONAL_COMMENT|END_OF_LINE_COMMENT
+TRADITIONAL_COMMENT: "/*" /([^*]|(\*[^\/]))+/  "*/"
+END_OF_LINE_COMMENT: "%" TEXTLINE LINE_TERMINATOR
+WHITE_SPACE:" "|"\t"|"\f"|LINE_TERMINATOR
+token:ATOM_TOKEN|VARIABLE_TOKEN|INTEGER_LITERAL|REAL_LITERAL|STRING_LITERAL|OPERATOR|SEPARATOR
+ATOM_TOKEN:SMALL_LETTER ALPHANUMERIC*|SINGLE_QUOTED_TOKEN
+VARIABLE_TOKEN:ANONYMOUS_VARIABLE|NAMED_VARIABLE
+ANONYMOUS_VARIABLE:/_/
+NAMED_VARIABLE:(/_/ALPHANUMERIC+|CAPITAL_LETTER ALPHANUMERIC*)
+ALPHANUMERIC:ALPHA_CHAR|DECIMAL_DIGIT
+ALPHA_CHAR:/_/|LETTER
+LETTER:SMALL_LETTER|CAPITAL_LETTER
+SINGLE_QUOTED_TOKEN:/'/ STRING_CHAR* /'/
+STRING_LITERAL: /"/ STRING_CHAR* /"/
+STRING_CHAR:/[^\n\r'"\\]/|ESCAPE_SEQUENCE
+INTEGER_LITERAL:DECIMAL_NUMERAL|HEX_NUMERAL|OCTAL_NUMERAL|BINARY_NUMERAL
+DECIMAL_NUMERAL:DECIMAL_DIGIT(DECIMAL_DIGIT|/_/)*
+HEX_NUMERAL:/0[xX]/HEX_DIGIT(HEX_DIGIT|/_/)*
+OCTAL_NUMERAL:/0[oO]/OCTAL_DIGIT(OCTAL_DIGIT|/_/)*
+BINARY_NUMERAL:/0[bB]/OCTAL_DIGIT(BINARY_DIGIT|/_/)*
+REAL_LITERAL:DECIMAL_NUMERAL /\./ DECIMAL_NUMERAL [EXPONENT_INDICATOR SIGNED_INTEGER]
+EXPONENT_INDICATOR:/[eE]/
+SIGNED_INTEGER:[SIGN] DECIMAL_NUMERAL
+SIGN:/[\+-]/
+SEPARATOR:/[(){}\[\]]/
+SMALL_LETTER:/[a-z]/
+CAPITAL_LETTER:/[A-Z]/
+DECIMAL_DIGIT:/[0-9]/
+HD:HEX_DIGIT
+HEX_DIGIT:/[0-9a-fA-F]/
+OCTAL_DIGIT:/[0-7]/
+BINARY_DIGIT:/[0-1]/
+ESCAPE_SEQUENCE:/\\(["'\\`abfnrtv]|u[0-9]+)/
+OPERATOR:/=|!=|>|>=|<|<=|=<|\.\.|!|,|;|:|::|\.|\. |=>|\?=>|==|!==|:=|\||\$|@|\/\\|\\\/|~|\^|<<|>>|\+|-|\*|\*\*|\/|\/>|\/<|^"|#=|#!=|#>|#>=|#<|#<=|#=<|#\/\\|#\\\/|#~|#\^|#=>|#<=>|@>|@>=|@<|@<=|@=</
+
+
+
+#       input tokens:
+atom:ATOM_TOKEN
+variable:VARIABLE_TOKEN
+integer:INTEGER_LITERAL
+float:REAL_LITERAL
+string: STRING_LITERAL
+# operator:OPERATOR
+# separator:SEPARATOR
+#             eor is "." followed by a white space or eof
+eor: "." WHITE_SPACE #in the worst case add a space at the end of the program before parsing
+
+program:[module_declaration] (import_declaration)* program_body
+
+program_body:(predicate_definition | function_definition | actor_definition|include)*
+
+include: "include" (string|STRING_CHAR+) eor
+
+module_declaration:"module" atom eor
+
+import_declaration:"import" import_item ("," import_item)* eor
+
+import_item:atom 
+
+predicate_definition:(predicate_directive)* predicate_rule_or_fact (predicate_rule_or_fact)*
+
+function_definition:(function_directive)* function_rule_or_fact (function_rule_or_fact)*
+
+actor_definition:["private"] action_rule ((action_rule | nonbacktrackable_predicate_rule))*
+
+function_directive:"private"|"table"
+
+predicate_directive:"private"
+|"table" ["(" table_mode ("," table_mode)* ")" ]
+|"index" index_declaration ("," index_declaration)*
+
+index_declaration:"(" index_mode ("," index_mode)* ")"
+
+index_mode:"+"|"-"
+
+table_mode:"+"
+|"-"
+|"min"
+|"max"
+|"nt"
+      
+predicate_rule_or_fact:predicate_rule
+|predicate_fact
+
+function_rule_or_fact:function_rule
+|function_fact
+
+predicate_rule:head ["," condition] ("=>" | "?=>") body eor
+|head (":-" | "-->") body eor
+
+nonbacktrackable_predicate_rule:head ["," condition] "=>" body eor
+
+predicate_fact:head eor
+
+head:atom ["(" [term ("," term)*] ")"]
+
+function_rule:head "=" expression ["," condition] "=>" body eor    
+
+function_fact:head "=" argument eor
+
+action_rule:head ["," condition] "," "{" event_pattern "}"   "=>" body eor
+
+event_pattern:term ("," term)*
+
+condition:goal
+
+body:goal
+
+argument:negative_goal
+
+goal:disjunctive_goal
+
+disjunctive_goal:disjunctive_goal (";"|"||") conjunctive_goal
+|conjunctive_goal
+
+conjunctive_goal:conjunctive_goal (","|"&&")  negative_goal
+|negative_goal
+
+negative_goal:"not" negative_goal
+|"!" #cut
+|equiv_constr
+
+equiv_constr:equiv_constr "#<=>" impl_constr
+|impl_constr
+
+impl_constr:impl_constr "#=>" or_constr
+|or_constr
+
+or_constr:or_constr "#\\/" xor_constr
+|xor_constr
+
+xor_constr:xor_constr "#^" and_constr
+|and_constr
+
+and_constr:and_constr "#/\\" not_constr
+|not_constr
+
+not_constr:"#~" not_constr
+|enclosed_goal
+
+enclosed_goal:"if" goal "then" goal ("elseif" goal "then" goal)* [ "else" goal ] "end"
+|goal "->" goal ";" goal #if then else, todo: to check
+|"foreach" "(" iterator ("," (iterator | condition))* ")" goal "end"
+|"while" "(" goal ")" ["do"] goal "end"
+|"do" goal "while" "(" goal ")"
+|expression (bin_rel_op expression)*
+|"(" goal ")" #todo check
+|"throw" argument #todo check
+|"once" goal #todo check
+
+bin_rel_op:"="
+|"is"
+|"!="
+|":=" 
+|"=="
+|"=\\="
+|"!=="
+|">"
+|">="
+|"<"
+|"=<"
+|"<="
+|"::"
+|"in"
+|"notin"
+|"#=" 
+|"#!=" 
+|"#>" 
+|"#>=" 
+|"#<" 
+|"#=<" 
+|"#<=" 
+|"@>" 
+|"@>=" 
+|"@<" 
+|"@=<" 
+|"@<=" 
+
+expression:concat_expression 
+
+concat_expression:range_expression ["++" concat_expression]
+
+range_expression:or_expression [".." or_expression [".." or_expression]]
+    
+or_expression:xor_expression 
+|or_expression "\\/" xor_expression
+
+xor_expression:and_expression 
+|xor_expression "^" and_expression              # bit-wise xor
+
+and_expression:shift_expression 
+|and_expression  "/\\" shift_expression
+
+shift_expression:additive_expression 
+|shift_expression ( "<<" | ">>" ) additive_expression 
+
+additive_expression:multiplicative_expression
+|additive_expression "+" multiplicative_expression
+|additive_expression "-" multiplicative_expression
+
+multiplicative_expression:unary_expression
+|multiplicative_expression "*" unary_expression
+|multiplicative_expression "/" unary_expression
+|multiplicative_expression "//" unary_expression
+|multiplicative_expression "/>" unary_expression
+|multiplicative_expression "/<" unary_expression
+|multiplicative_expression "div" unary_expression
+|multiplicative_expression "mod" unary_expression
+|multiplicative_expression "rem" unary_expression
+
+    
+unary_expression:power_expression
+|"+" unary_expression
+|"-" unary_expression
+|"~" unary_expression                           # bit-wise complement
+
+power_expression:primary_expression ["**" unary_expression]
+
+primary_expression: #"(" goal ")"
+|variable "[" argument ["," argument] "]"       # subscript notation
+|variable "@" term ["@"]                        # as-pattern
+|variable
+|integer
+|float
+|string
+|atom_or_call
+|list_expression
+|array_expression
+|tuple_expression
+|function_call
+|term_constructor
+|primary_expression "." atom_or_call            # dot-notation
+
+#todo: verify iterator
+iterator: expression  "in" expression 
+|expression  "in" expression  ".." expression
+|expression  "=" expression # todo: to double check this one
+
+atom_or_call:atom ["(" [argument ("," argument)*] ")"]  
+
+list_expression:"[]"
+|"[" argument list_expression_suffix "]"
+
+list_expression_suffix:":" iterator ("," (iterator | condition))*      # list comprehension
+|("," argument)* ["|" argument] 
+
+array_expression:"{}"
+|"{" argument array_expression_suffix "}"    
+
+array_expression_suffix:":" iterator ("," (iterator | condition))*      # array comprehension
+|("," argument)* 
+
+tuple_expression:"(" argument ("," argument)* ")"
+
+function_call:[primary_expression "."] atom "(" [argument ("," argument)*] ")"
+
+# variable_list ->
+#     "[" [variable {"," variable}] "]"
+
+term_constructor:"$" goal ["$"]
+
+# /* a term has the same form as a goal except that it cannot contain loops 
+#    or if-then-else. Note that subscript notations, range expressions, dot
+#    notations, and list comprehensions are still treated as functions in 
+#    term constructors */
+
+term:goal # probably much too generic
+
+start:program
